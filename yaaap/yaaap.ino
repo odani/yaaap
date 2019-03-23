@@ -54,11 +54,11 @@
 
    */
 
-#define DEBUG 0
-#define SERIALDEBUG 0
+#define DEBUG 10
+#define SERIALDEBUG 5
 //#define SERVO 1
 #define TACKANGLE 100 // In degrees
-#define OVERLOADCURRENT 2400 // milliAmps
+#define OVERLOADCURRENT 6000 // milliAmps
 #define OVERLOADDELAY 5000 // millisec
 // motor definitions
 //#define MOTORDRIVER 1 // BTN7970B
@@ -79,17 +79,16 @@
 #define B_PWM 9
 #endif
 #define ACS712PIN A0
-#define BACKLIGHTPIN 10
 
-#include <LiquidCrystal_I2C.h>
 #include <Wire.h>
+#include "LSM303.h"
 #include "OneButton.h"
-#include "I2Cdev.h"
-#include "RTIMUSettings.h"
-#include "RTIMU.h"
-#include "RTFusionRTQF.h"
-#include "CalLib.h"
+#include "I2Cdev.h" // this may be for previous compass?
+#include "CalLib.h" // for previous compass but still using callib_data struct
 
+
+#include <Adafruit_SSD1306.h> // for oled
+#include <Adafruit_GFX.h> // for oled
 
 #define LED_PIN 13
 unsigned long ledStart = 0;
@@ -99,7 +98,18 @@ OneButton button1(A1, true);
 OneButton button2(A2, true);
 OneButton button3(A3, true);
 
-long refVoltage = 0;
+// Setup for LSM303D compass
+LSM303 compass;
+
+// OLED display TWI address
+#define OLED_ADDR   0x3C
+Adafruit_SSD1306 display(-1);
+
+#if (SSD1306_LCDHEIGHT != 32)
+#error("Height incorrect, please fix Adafruit_SSD1306.h!");
+#endif
+
+long refVoltage = 2490; //mV for ACS712
 
 float cmd = 0;
 bool standby = true;
@@ -120,9 +130,6 @@ CALLIB_DATA params;              // the calibration data and other EEPROM params
 
 int Kp = 3, Kd = 30; // proportional, derivative1 coefficients (tiller position do the integral/sum term)
 
-// LCD display interface pins
-//LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
-LiquidCrystal_I2C lcd(0x27, 16, 2);
 #ifdef SERVO // For development and code test only
 #include <Servo.h>
 Servo myservo;
@@ -137,11 +144,16 @@ int sign(int val) { // declare the missing sign() fn
   return (val > 0) - (val < 0);
 }
 
+/*
+// currently not using this 11/3/18
+// this is for converting numbers to a string
+// https://www.quora.com/Why-is-char-buffer-15-used-in-this-program
 void printJustified(int value) {
   char buffer[7];
   sprintf(buffer, "%4d", value);
-  lcd.print(buffer);
+  //lcd.print(buffer);
 }
+*/
 float map360(float deg) {
   if (deg < 0) deg += 360;
   else if (deg > 360) deg -= 360;
@@ -220,7 +232,7 @@ void tillerInit() {
 }
 
 bool tillerOverload(int commandDirection) {
-  const int sensitivity = 185;//change this to 100 for ACS712PIN-20A or to 66 for ACS712PIN-30A
+  const int sensitivity = 100;//change this to 100 for ACS712PIN-20A or to 66 for ACS712PIN-30A
   bool overload = false;
   if (overloadStart) {
     if (overloadDirection == commandDirection) {       // If same direction than last detected overload
@@ -235,24 +247,33 @@ bool tillerOverload(int commandDirection) {
       overloadStart = 0; // Direction has changed. Reset delay
     }
   }
-  int current = 0;
+  int v = 0;
   //read some samples to stabilize value
   for (int i = 0; i < 10; i++) {
-    current = current + analogRead(ACS712PIN);
+    v = v + analogRead(ACS712PIN);
     delay(1);
   }
-  current /= 10;
-  current -=  refVoltage;
-  tillerCurrent = current * 5000000 / 1023 / sensitivity; // to mA
+  v /= 10;
+  #if SERIALDEBUG==5
+    Serial.print("v: ");
+    Serial.println(v);
+  #endif
+
+  v -=  refVoltage;
+
+  // this is giving 3.9 Amps for my motor in the TP32
+  tillerCurrent = v * 5000 / 1023 / sensitivity * 1000; // to mA
   if (abs(tillerCurrent) > OVERLOADCURRENT) {
     overload = true;
     overloadStart = millis();
     overloadDirection = commandDirection;
     tillerStandby(true);
-    lcd.setCursor(0, 1);
-    lcd.print(F(" OVERLOAD "));
-    lcd.setCursor(11, 1);
-    lcd.print(tillerCurrent);
+
+    display.clearDisplay();
+    display.setCursor(5,5);
+    display.print("Overload ");
+    display.print(tillerCurrent);
+    display.display();
   }
   else {
     overloadDirection = 0;
@@ -301,11 +322,11 @@ void tillerCommand(int tillerCmd) {
     tillerCmd = 0;
 
 #if DEBUG == 10
-  lcd.setCursor(0, 1);
-  lcd.print("motor        ");
-  lcd.setCursor(6, 1);
-  lcd.print(tillerCmd);
-  lcd.print(" ");
+  display.clearDisplay();
+  display.setCursor(5,5);
+  display.print("motor ");
+  display.print(tillerCmd);
+  display.display();
 #endif
 
   if (tillerCmd == 0) {
@@ -327,12 +348,14 @@ void tillerCommand(int tillerCmd) {
       digitalWrite(LED_PIN, false);
       //     Serial.print("pulseW="); Serial.print(pulseWidth); Serial.print(" "); Serial.print(pulseCurrentMillis); Serial.print(" - "); Serial.print(pulseStartMillis); Serial.println(" ");
 #if DEBUG == 3
-  lcd.setCursor(0, 1);
-  printJustified(tillerCmd);
-  lcd.print(" ");
-  printJustified(pulseState);
+  display.clearDisplay()
+  display.setCursor(5,5);
+  display.print(tillerCmd);
+  display.print(" ");
+  //printJustified(pulseState);
+  display.print(pulseState);
   //printJustified(pulseWidth);
-  lcd.print(" ");
+  display.display();
 #endif
     }
     pulseStartMillis = millis();
@@ -358,6 +381,7 @@ void tillerCommand(int tillerCmd) {
 */
 int computeCmd() {
   headingError = heading - bearing;
+  // deadband saved to eeprom, is the heading error that is allowed before course correction initiates
   if (abs(headingError) < deadband / 2) {
     headingError = 0;
     cmd = 0;
@@ -369,26 +393,32 @@ int computeCmd() {
       else
         headingError -= 360;
     }
-  }
-  unsigned long now = millis();
-  deltaTime = now - previousTime;
-  previousTime = now;
-  deltaError = headingError - previousError;
-  previousError = headingError;
- // deltaErrorDeriv = deltaError - previousDeltaError;
-  //previousDeltaError = deltaError;
 
-  cmd = Kp * headingError + (Kd * deltaError) * 1000 / deltaTime; // by time in sec
-  if (cmd > 100) cmd = 100;
-  if (cmd < -100) cmd = -100;
+    unsigned long now = millis();
+    deltaTime = now - previousTime;
+    previousTime = now;
+    deltaError = headingError - previousError;
+    previousError = headingError;
+  // deltaErrorDeriv = deltaError - previousDeltaError;
+    //previousDeltaError = deltaError;
+
+    cmd = Kp * headingError + (Kd * deltaError) * 1000 / deltaTime; // by time in sec
+    if (cmd > 100) cmd = 100;
+    if (cmd < -100) cmd = -100;
+  }
 #if DEBUG == 2
-  // lcd.clear();
-  lcd.setCursor(0, 1);
   //printJustified((int)(Kp*headingError));
-  printJustified((int)(Kp * headingError ));
-  printJustified((int)(Kd * deltaError * 1000 / deltaTime));
-  printJustified((int)cmd);
-  lcd.print("  ");
+  //printJustified((int)(Kp * headingError ));
+  //printJustified((int)(Kd * deltaError * 1000 / deltaTime));
+  //printJustified((int)cmd);
+  display.clearDisplay();
+  display.setCursor(5,5);
+  display.print((int)(Kp * headingError ));
+  display.print(" ");
+  display.print((int)(Kd * deltaError * 1000 / deltaTime));
+  display.print(" c:");
+  display.print((int)cmd);
+  display.display();
 #endif
 #if SERIALDEBUG==2
   Serial.print(deltaTime);
@@ -401,7 +431,7 @@ int computeCmd() {
   Serial.print(" ");
   Serial.println(cmd);
 #endif
-  return (int)cmd;
+  return (int)cmd; // casts cmd to an integer
 }
 /***********************************************************
    Buttons management
@@ -451,8 +481,10 @@ void b2LongPressStop() { // reset steering or launch tack
   if (launchTack)
     launchTack = false; // steering update already done
   else {
-    lcd.clear();
-    lcd.print("Reset steering");
+    display.clearDisplay();
+    display.setCursor(5,5);
+    display.print("Reset steering");
+    display.display();
     bearing = heading;
     //    delay (100);
   }
@@ -533,26 +565,38 @@ void setup() {
   Serial.println("Initializing...");
 #endif
   pinMode(LED_PIN, OUTPUT);
-  pinMode(BACKLIGHTPIN, OUTPUT);
+  //pinMode(BACKLIGHTPIN, OUTPUT);
 
-  //  lcd.setBacklight(1);
-  lcd.begin();
-  lcd.setCursor(0, 0);
-  lcd.print("Init ");
+  // initialize display
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+
+  // display a line of text
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.clearDisplay();
+  display.setCursor(5,5);
+  display.print("Init "); display.display();
+
   calLibRead(0, &params);                           // pick up existing mag data (and other params) if there
+  // NEXT
   Kp = params.Kp;
   Kd = params.Kd;
-  analogWrite(BACKLIGHTPIN, params.backlight);
-  deadband = params.deadband;
-  lcd.print("*");
-  buttonsInit();
-  lcd.print("*");
-  tillerInit();
-  lcd.print("*");
-  compassInit();
-  lcd.print("*");
-  bearing = compassHeading();
 
+  deadband = params.deadband;
+  display.print("*"); display.display();
+  buttonsInit();
+  display.print("*"); display.display();
+  tillerInit();
+  display.print("*"); display.display();
+
+  // for LSM303D compass
+  compass.init();
+  compass.enableDefault();
+  compass.m_min = (LSM303::vector<int16_t>){-3613, -3417, -3472}; // use values from calibration
+  compass.m_max = (LSM303::vector<int16_t>){+3592, +3243, +3907}; // use values from calibration
+  compass.read();
+  bearing = compass.heading();
+  display.print("*"); display.display();
 }
 
 /***********************************************************
@@ -576,12 +620,16 @@ void loop() {
   if (setupFonctions) {
     tillerCommand(0); // Security...
     setupMenu();
-    compassReset(); // Reinit fusion algo after any pause
     setupFonctions = false;
   }
-  // Sum for heading average
-  headingSum += compassHeading();
+  // Sum for heading average. LSM303D
+  compass.read();
+  headingSum += compass.heading();
   headingCnt++;
+  #if SERIALDEBUG
+    //Serial.print("headingSum: ");
+    //Serial.println(headingSum);
+  #endif
  
   unsigned long now = millis();
 
@@ -590,43 +638,50 @@ void loop() {
     prevCommand = now;
     heading = headingSum/headingCnt;
 #if DEBUG == 1
-  lcd.setCursor(0, 1);
-  lcd.print(headingCnt);
-  lcd.print(" ");
+  display.clearDisplay();
+  display.setCursor(5,5);
+  display.print("hc ");
+  display.println(headingCnt);
+  display.display();
 #endif
 	  headingSum = 0;
 	  headingCnt = 0;
     ctrl = computeCmd();
 #if DEBUG == 1
-  lcd.setCursor(5, 1);
-  lcd.print(" ");
-  lcd.print(ctrl);
-  lcd.print(" ");
+  display.print("c ");
+  display.println(ctrl);
+  display.display();
 #endif
   }
 
   // Control running tiller actuator
   if (!standby)
       tillerCommand(ctrl);
-	
+
   // Periodic display refresh
   if ((now - prevDisplay) >= DISPLAY_INTERVAL) {
     prevDisplay = now;
 
-    lcd.setCursor(0, 0);
+    display.clearDisplay();
+    display.setCursor(5,5);
     if (standby)
-      lcd.print("Sby");
+      display.println("Sby ");
     else
-      lcd.print("Run");
+      display.println("Run ");
 
-    printJustified((int)bearing);
-    printJustified((int)heading);
-    printJustified((int)headingError);
-    lcd.setCursor(0, 1);
-//    printJustified(tillerCurrent);
-    lcd.print(F("               "));
+    display.print("b ");
+    display.print(round(bearing));
+    display.print(" h ");
+    display.print(round(heading));
+    display.print(" e ");
+    display.println(round(headingError));
+    display.print("Kp ");
+    display.print(Kp);
+    display.print(" Kd ");
+    display.print(Kd);
+    display.display();
 
-    lcd.print("   ");
+    //printJustified(tillerCurrent);
   }
 
 }

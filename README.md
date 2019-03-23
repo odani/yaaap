@@ -4,6 +4,15 @@ Yaaap  is a simple autopilot for a sailboat using Arduino pro mini card and brea
 The interface is reduced to 3 buttons and an LCD display.
 The project was intended to replace the CPU of an old analog pilot Autohelm 2000 retaining the original electric actuator.
 
+## Modifications
+I'm making several modifications to the original library:
+Pololu LSM303D as a tilt adjusted compass instead of 9dof IMU MPU9250 and RTIMUlib (done 9/2/18)
+Replacing LCD display with 128x32 OLED using Adafruit_SSD1306 and GFX libraries (done 11/3/18)
+
+## Next
+what is the i2cdev.h library for?
+update the menu setup file for oled
+
 
 ## Features
 

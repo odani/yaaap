@@ -7,9 +7,8 @@
 #include <string.h>
 #include <avr/pgmspace.h>
 
-#include "I2Cdev.h"
-#include "CalLib.h"
-#define BACKLIGHTPIN 10
+//#include "I2Cdev.h"
+//#include "CalLib.h"
 
 int line = 0;
 
@@ -33,7 +32,8 @@ const char* const StringTable[] PROGMEM = {
 void printLCD_P(int which) {
   char buffer[17];
   strcpy_P(buffer, (char*)pgm_read_word(&(StringTable[which])));
-  lcd.print(buffer);
+  display.print(buffer);
+  display.display();
   delay(40);
 }
 
@@ -78,11 +78,13 @@ void menuButtonsInit() {
 */
 int updateValue(int value, const char name[]) {
   while (true) {
-    lcd.setCursor(0, 1);
-    lcd.print(name);
-    lcd.print(" ");
-    printJustified(value);
-    lcd.print("    ");
+    display.clearDisplay();
+    display.setCursor(5,5);
+    display.print(name);
+    display.print(" ");
+    //printJustified(value);
+    display.print(value);
+    display.display();
     keyPressed = ' ';
     while (keyPressed == ' ')
       buttonsTick();
@@ -110,16 +112,14 @@ void setupMenu() {
 
   // At first, show current values
   // until a key is pressed
-  lcd.clear();
-  //	lcd.setCursor(0, 0);
-  //	lcd.print("O ");
-  //	printJustified(offX);
-  //  printJustified(offY);
-  //  printJustified(offZ);
-  lcd.setCursor(0, 1);
-  lcd.print("K ");
-  printJustified(Kp);
-  printJustified(Kd);
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);  
+  display.clearDisplay();
+  display.setCursor(5,5);
+  display.print("Kp ");
+  display.print(Kp);
+  display.print(" Kd ");
+  display.print(Kd);
+  display.display();
 //  printJustified(Kdd);
   // special functions - First level - lightOff / Menu / lightOn
   keyPressed = ' ';
@@ -127,24 +127,26 @@ void setupMenu() {
     buttonsTick();
     switch (keyPressed) {
       case 'u':
-        params.backlight = 255;
-        analogWrite(BACKLIGHTPIN, params.backlight);
+        // params.backlight = 255;
+        // analogWrite(BACKLIGHTPIN, params.backlight);
         break;
       case 'd':
-        params.backlight = 10;
-        analogWrite(BACKLIGHTPIN, params.backlight);
+        //params.backlight = 10;
+        // analogWrite(BACKLIGHTPIN, params.backlight);
         //       lcd.setBacklight(0); // Off
         break;
     }
   }
 
-  RTVector3 gyroBias;
+  //RTVector3 gyroBias;
   // special functions - 2nd level
   while (!exitMenu) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
+    display.clearDisplay();
+    display.setCursor(5,5);
+    //display.print("Line ");
     printLCD_P(line);
     //		lcd.print(StringTable[line]);
+
     keyPressed = ' ';
     while (keyPressed == ' ')
       buttonsTick();
@@ -174,9 +176,10 @@ void setupMenu() {
             params.deadband = deadband;
             break;
           case 4: //Calibration
-              compassCalibration();
+              //compassCalibration();
             break;
           case 5:
+          /*
             if (imu->IMUGyroBiasValid()) { // save gyroBias data if valid
               gyroBias = imu->getGyroBias();
               params.gyroBiasValid = 0x1;
@@ -184,9 +187,10 @@ void setupMenu() {
               params.gyroBias[1] = gyroBias.y();
               params.gyroBias[2] = gyroBias.z();
             }
+            */
             calLibWrite(0, &params);
-            lcd.setCursor(0, 1);
-            lcd.print(F("Saved to EEPROM"));
+            //lcd.setCursor(0, 1);
+            //lcd.print(F("Saved to EEPROM"));
             delay(1000);
             exitMenu = true;
             break;
@@ -207,8 +211,6 @@ void setupMenu() {
         line = 0; //Default to Exit after any selection
     }
   }
-  lcd.clear();
+  display.clearDisplay();
   buttonsInit();
 }
-
-
