@@ -54,7 +54,7 @@
 
    */
 
-#define DEBUG 10
+#define DEBUG 0
 #define SERIALDEBUG 5
 //#define SERVO 1
 #define TACKANGLE 100 // In degrees
@@ -327,6 +327,7 @@ void tillerCommand(int tillerCmd) {
   display.print("motor ");
   display.print(tillerCmd);
   display.display();
+  delay(1000);
 #endif
 
   if (tillerCmd == 0) {
